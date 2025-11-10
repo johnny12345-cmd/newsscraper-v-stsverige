@@ -1,0 +1,77 @@
+name: Daglig Nyhetsscraper
+
+# Kör varje dag kl 06:00 UTC (07:00 svensk vintertid, 08:00 sommartid)
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC = 07:00 svensk tid (vintertid)
+  workflow_dispatch:  # Tillåter manuell körning för testning
+
+jobs:
+  scrape-news:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checka ut kod
+      uses: actions/checkout@v3
+    
+    - name: Sätt upp Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Installera beroenden
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4
+    
+    - name: Skapa config-fil från secrets
+      run: |
+        cat > scraper_config.json << EOF
+        {
+          "email": {
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "sender_email": "${{ secrets.SENDER_EMAIL }}",
+            "sender_name": "SVT Nyheter Väst",
+            "sender_password": "${{ secrets.SENDER_PASSWORD }}",
+            "recipient_email": "${{ secrets.RECIPIENT_EMAIL }}"
+          },
+          "websites": [
+            {"name": "GP", "url": "https://www.gp.se", "max_items": 5, "type": "gp_style"},
+            {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/nyheter/p4-goteborg", "max_items": 3, "type": "sverigesradio"},
+            {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/nyheter/p4-skaraborg", "max_items": 3, "type": "sverigesradio"},
+            {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/nyheter/p4-sjuharad", "max_items": 3, "type": "sverigesradio"},
+            {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/nyheter/p4-vast", "max_items": 3, "type": "sverigesradio"},
+            {"name": "Alingsås Tidning", "url": "https://www.alingsastidning.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Bohusläningen", "url": "https://www.bohuslaningen.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Härryda Posten", "url": "https://www.harrydaposten.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Kungälvs-Posten", "url": "https://www.kungalvsposten.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Lerums Tidning", "url": "https://www.lerumstidning.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Mark-Posten", "url": "https://www.markposten.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Melleruds Nyheter", "url": "https://www.mellerudsnyheter.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Mölndals-Posten", "url": "https://www.molndalsposten.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Partille Tidning", "url": "https://www.partilletidning.se", "max_items": 3, "type": "gp_style"},
+            {"name": "ST-tidningen", "url": "https://www.sttidningen.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Strömstads Tidning", "url": "https://www.stromstadstidning.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Ttela", "url": "https://www.ttela.se", "max_items": 3, "type": "gp_style"},
+            {"name": "Borås Tidning", "url": "https://www.bt.se/", "max_items": 3, "type": "bt_style"},
+            {"name": "Dalslänningen", "url": "https://www.dalslanningen.se/", "max_items": 3, "type": "provins_style"},
+            {"name": "Falköpings Tidning", "url": "https://www.falkopingstidning.se/", "max_items": 3, "type": "bt_style"},
+            {"name": "Mariestads-Tidningen", "url": "https://www.mariestadstidningen.se/", "max_items": 3, "type": "provins_style"},
+            {"name": "NLT", "url": "https://www.nlt.se/", "max_items": 3, "type": "provins_style"},
+            {"name": "Provinstidningen Dalsland", "url": "https://www.provinstidningen.se", "max_items": 3, "type": "provins_style"},
+            {"name": "Skaraborgs Bygden", "url": "https://www.skaraborgsbygden.se/", "max_items": 3, "type": "provins_style"},
+            {"name": "Skaraborgs Läns Tidning", "url": "https://www.skaraborgslanstidning.se/", "max_items": 3, "type": "bt_style"},
+            {"name": "Skövde Nyheter", "url": "https://www.skovdenyheter.se/", "max_items": 3, "type": "bt_style"},
+            {"name": "SLA", "url": "https://www.sla.se/", "max_items": 3, "type": "provins_style"},
+            {"name": "Ulricehamns Tidning", "url": "https://www.ut.se/", "max_items": 3, "type": "bt_style"},
+            {"name": "Västgöta-Bladet", "url": "https://www.vastgotabladet.se/", "max_items": 3, "type": "bt_style"}
+          ]
+        }
+        EOF
+    
+    - name: Kör nyhetsscraper
+      run: python multi_news_scraper_COMPLETE.py
+    
+    - name: Bekräfta körning
+      run: echo "✅ Nyhetsscraper kördes framgångsrikt!"
