@@ -517,7 +517,17 @@ def send_email(config, subject, html_body):
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
         msg['From'] = f"{email_config['sender_name']} <{email_config['sender_email']}>"
-        msg['To'] = email_config['recipient_email']
+        
+        # Hantera flera mottagare (kommaseparerade)
+        recipients = email_config['recipient_email']
+        if isinstance(recipients, str):
+            # Om det är en sträng, dela upp på komma
+            recipient_list = [r.strip() for r in recipients.split(',')]
+        else:
+            # Om det redan är en lista
+            recipient_list = recipients
+        
+        msg['To'] = ', '.join(recipient_list)
         
         html_part = MIMEText(html_body, 'html', 'utf-8')
         msg.attach(html_part)
@@ -525,9 +535,9 @@ def send_email(config, subject, html_body):
         with smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port']) as server:
             server.starttls()
             server.login(email_config['sender_email'], email_config['sender_password'])
-            server.send_message(msg)
+            server.sendmail(email_config['sender_email'], recipient_list, msg.as_string())
         
-        print(f"✓ E-post skickad till {email_config['recipient_email']}")
+        print(f"✓ E-post skickad till {len(recipient_list)} mottagare: {', '.join(recipient_list)}")
         return True
         
     except Exception as e:
