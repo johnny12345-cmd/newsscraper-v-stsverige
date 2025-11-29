@@ -23,7 +23,7 @@ DEFAULT_CONFIG = {
         "smtp_server": "smtp.gmail.com",
         "smtp_port": 587,
         "sender_email": "din.email@gmail.com",
-        "sender_name": "SVT Nyheter Väst",
+        "sender_name": "Nyheter Väst",
         "sender_password": "ditt_app_losenord",
         "recipient_email": "mottagare@example.com"
     },
