@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Västsverige">
+    <title>💥😊 Nyheter just nu i Västsverige</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            line-height: 1.5;
+            color: #333;
+            background-color: #f5f5f5;
+            padding-bottom: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #003366 0%, #0066cc 100%);
+            color: white;
+            padding: 20px 15px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .header .date {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .update-button {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .update-button:active {
+            background-color: rgba(255, 255, 255, 0.3);
+            transform: scale(0.95);
+        }
+        
+        .update-button.loading {
+            background-color: rgba(255, 255, 255, 0.3);
+            cursor: wait;
+        }
+        
+        .update-button.success {
+            background-color: rgba(76, 175, 80, 0.8);
+            border-color: rgba(76, 175, 80, 1);
+        }
+        
+        .status-message {
+            background-color: white;
+            padding: 12px 15px;
+            margin: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-message.info {
+            color: #0066cc;
+            background-color: #e3f2fd;
+        }
+        
+        .status-message.success {
+            color: #2e7d32;
+            background-color: #e8f5e9;
+        }
+        
+        .status-message.error {
+            color: #c62828;
+            background-color: #ffebee;
+        }
+        
+        .meta {
+            background-color: white;
+            padding: 12px 15px;
+            font-size: 13px;
+            color: #666;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .site-section {
+            background-color: white;
+            margin: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .site-header {
+            background-color: #4a4a4a;
+            color: white;
+            padding: 12px 15px;
+            border-left: 5px solid #0066cc;
+        }
+        
+        .site-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+        
+        .site-header .site-url {
+            font-size: 11px;
+            color: #cccccc;
+        }
+        
+        .article {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .article:last-child {
+            border-bottom: none;
+        }
+        
+        .headline {
+            font-size: 16px;
+            font-weight: 600;
+            color: #003366;
+            margin-bottom: 8px;
+            line-height: 1.3;
+        }
+        
+        .headline a {
+            color: #003366;
+            text-decoration: none;
+        }
+        
+        .headline a:active {
+            color: #0066cc;
+        }
+        
+        .lead {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .error-message {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 12px;
+            margin: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .refresh-info {
+            background-color: white;
+            padding: 12px 15px;
+            margin: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 13px;
+            color: #666;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #1a1a1a;
+                color: #e0e0e0;
+            }
+            
+            .site-section {
+                background-color: #2a2a2a;
+            }
+            
+            .meta {
+                background-color: #2a2a2a;
+                color: #aaa;
+                border-bottom-color: #3a3a3a;
+            }
+            
+            .article {
+                border-bottom-color: #3a3a3a;
+            }
+            
+            .headline a {
+                color: #66b3ff;
+            }
+            
+            .lead {
+                color: #bbb;
+            }
+            
+            .refresh-info {
+                background-color: #2a2a2a;
+                color: #aaa;
+            }
+        }
+        
+        /* Pull to refresh hint */
+        .pull-hint {
+            text-align: center;
+            padding: 10px;
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>💥😊 Morgonens nyheter i Västsverige</h1>
+        <div class="date" id="current-date"></div>
+        <button class="update-button" id="update-button" onclick="triggerUpdate()">
+            🔄 Uppdatera nu
+        </button>
+    </div>
+    
+    <div class="pull-hint">Dra nedåt för att uppdatera</div>
+    
+    <div id="status-container"></div>
+    
+    <div class="container">
+        <div class="meta">
+            <strong>Uppdaterad:</strong> <span id="update-time">Laddar...</span><br>
+            <strong>Källor:</strong> <span id="source-count">29</span> nyhetssajter<br>
+            <strong>Artiklar:</strong> <span id="article-count">~90</span> st
+        </div>
+        
+        <div id="news-content">
+            <!-- News content will be loaded here -->
+        </div>
+        
+        <div class="footer">
+            <p>Detta är en automatisk sammanställning från 29 svenska nyhetssajter</p>
+            <p>Powered by GitHub Actions</p>
+        </div>
+    </div>
+    
+    <script>
+        // Set current date
+        const days = ['Söndag', 'Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag'];
+        const months = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 
+                       'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+        const now = new Date();
+        const dateStr = `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+        document.getElementById('current-date').textContent = dateStr;
+        
+        // Load news content
+        async function loadNews() {
+            try {
+                const response = await fetch('news-data.json');
+                const data = await response.json();
+                
+                document.getElementById('update-time').textContent = data.timestamp;
+                document.getElementById('source-count').textContent = data.successful_sites;
+                document.getElementById('article-count').textContent = data.total_articles;
+                
+                const container = document.getElementById('news-content');
+                container.innerHTML = '';
+                
+                data.sites.forEach(site => {
+                    const siteSection = document.createElement('div');
+                    siteSection.className = 'site-section';
+                    
+                    const emoji = site.name.startsWith('SR') ? '📻' : '📰';
+                    
+                    let html = `
+                        <div class="site-header">
+                            <h2>${emoji} ${site.name}</h2>
+                            <div class="site-url">${site.url}</div>
+                        </div>
+                    `;
+                    
+                    if (site.success && site.articles.length > 0) {
+                        site.articles.forEach(article => {
+                            const leadHtml = article.lead ? `<p class="lead">${article.lead}</p>` : '';
+                            const linkHtml = article.link 
+                                ? `<a href="${article.link}" target="_blank">${article.headline}</a>`
+                                : article.headline;
+                            
+                            html += `
+                                <div class="article">
+                                    <h3 class="headline">${linkHtml}</h3>
+                                    ${leadHtml}
+                                </div>
+                            `;
+                        });
+                    } else if (!site.success) {
+                        html += `<div class="error-message">Kunde inte hämta artiklar: ${site.error}</div>`;
+                    } else {
+                        html += `<div class="error-message">Inga artiklar hittades.</div>`;
+                    }
+                    
+                    siteSection.innerHTML = html;
+                    container.appendChild(siteSection);
+                });
+            } catch (error) {
+                document.getElementById('news-content').innerHTML = 
+                    '<div class="error-message">Kunde inte ladda nyheter. Dra nedåt för att försöka igen.</div>';
+            }
+        }
+        
+        // Pull to refresh
+        let touchStartY = 0;
+        document.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        });
+        
+        document.addEventListener('touchmove', (e) => {
+            const touchY = e.touches[0].clientY;
+            const touchDiff = touchY - touchStartY;
+            
+            if (touchDiff > 100 && window.scrollY === 0) {
+                location.reload();
+            }
+        });
+        
+        // Load news on page load
+        loadNews();
+        
+        // Function to trigger GitHub Actions workflow
+        async function triggerUpdate() {
+            const button = document.getElementById('update-button');
+            const statusContainer = document.getElementById('status-container');
+            
+            // Show status message
+            function showStatus(message, type) {
+                statusContainer.innerHTML = `<div class="status-message ${type}">${message}</div>`;
+                setTimeout(() => {
+                    if (type !== 'info') {
+                        statusContainer.innerHTML = '';
+                    }
+                }, 5000);
+            }
+            
+            // Disable button and show loading
+            button.classList.add('loading');
+            button.textContent = '⏳ Uppdaterar...';
+            button.disabled = true;
+            
+            showStatus('🔄 Startar uppdatering... Detta tar ca 1-2 minuter.', 'info');
+            
+            try {
+                // Get GitHub credentials from localStorage (set during first setup)
+                const githubToken = localStorage.getItem('github_token');
+                const repoOwner = localStorage.getItem('repo_owner');
+                const repoName = localStorage.getItem('repo_name');
+                
+                if (!githubToken || !repoOwner || !repoName) {
+                    // Show setup instructions
+                    showSetupInstructions();
+                    button.classList.remove('loading');
+                    button.textContent = '🔄 Uppdatera nu';
+                    button.disabled = false;
+                    return;
+                }
+                
+                // Trigger GitHub Actions workflow
+                const response = await fetch(
+                    `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/manual-update.yml/dispatches`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/vnd.github.v3+json',
+                            'Authorization': `token ${githubToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            ref: 'main'  // or 'master' depending on your default branch
+                        })
+                    }
+                );
+                
+                if (response.status === 204) {
+                    button.classList.remove('loading');
+                    button.classList.add('success');
+                    button.textContent = '✅ Startat!';
+                    
+                    showStatus('✅ Uppdatering startad! Vänta 1-2 minuter, dra sedan nedåt för att se nya nyheter.', 'success');
+                    
+                    // Reset button after 3 seconds
+                    setTimeout(() => {
+                        button.classList.remove('success');
+                        button.textContent = '🔄 Uppdatera nu';
+                        button.disabled = false;
+                    }, 3000);
+                } else {
+                    throw new Error('Kunde inte starta uppdatering');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                button.classList.remove('loading');
+                button.textContent = '❌ Fel';
+                showStatus('❌ Kunde inte starta uppdatering. Kontrollera dina inställningar.', 'error');
+                
+                setTimeout(() => {
+                    button.textContent = '🔄 Uppdatera nu';
+                    button.disabled = false;
+                }, 3000);
+            }
+        }
+        
+        // Show setup instructions for first-time users
+        function showSetupInstructions() {
+            const statusContainer = document.getElementById('status-container');
+            statusContainer.innerHTML = `
+                <div class="status-message info" style="text-align: left; padding: 15px;">
+                    <strong>⚙️ Första gången-setup:</strong><br><br>
+                    För att använda "Uppdatera nu"-knappen behöver du:<br><br>
+                    1. <strong>GitHub Personal Access Token</strong><br>
+                    - Gå till GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)<br>
+                    - Klicka "Generate new token (classic)"<br>
+                    - Namnge: "News App"<br>
+                    - Välj scope: <code>repo</code> och <code>workflow</code><br>
+                    - Kopiera token<br><br>
+                    2. <strong>Fyll i nedan:</strong><br>
+                    <input type="text" id="setup-token" placeholder="GitHub Token" style="width: 100%; margin: 5px 0; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                    <input type="text" id="setup-owner" placeholder="GitHub användarnamn" style="width: 100%; margin: 5px 0; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                    <input type="text" id="setup-repo" placeholder="Repository namn (t.ex. vastsverige-nyheter)" style="width: 100%; margin: 5px 0; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                    <button onclick="saveSetup()" style="width: 100%; margin-top: 10px; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 4px; font-weight: 600;">💾 Spara inställningar</button>
+                </div>
+            `;
+        }
+        
+        // Save setup credentials
+        function saveSetup() {
+            const token = document.getElementById('setup-token').value.trim();
+            const owner = document.getElementById('setup-owner').value.trim();
+            const repo = document.getElementById('setup-repo').value.trim();
+            
+            if (!token || !owner || !repo) {
+                alert('Vänligen fyll i alla fält!');
+                return;
+            }
+            
+            localStorage.setItem('github_token', token);
+            localStorage.setItem('repo_owner', owner);
+            localStorage.setItem('repo_name', repo);
+            
+            document.getElementById('status-container').innerHTML = `
+                <div class="status-message success">
+                    ✅ Inställningar sparade! Nu kan du använda "Uppdatera nu"-knappen.
+                </div>
+            `;
+            
+            setTimeout(() => {
+                document.getElementById('status-container').innerHTML = '';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
