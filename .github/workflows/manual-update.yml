@@ -30,7 +30,7 @@ jobs:
             "smtp_server": "smtp.gmail.com",
             "smtp_port": 587,
             "sender_email": "noreply@localhost",
-            "sender_name": "SVT Nyheter Väst",
+            "sender_name": "Nyheter Väst",
             "sender_password": "dummy",
             "recipient_email": "noreply@localhost"
           },
