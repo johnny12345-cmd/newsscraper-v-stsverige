@@ -1,9 +1,9 @@
 name: Daglig Nyhetsscraper
 
-# Kör varje dag kl 05:00 UTC (06:00 svensk vintertid, 07:00 sommartid)
+# Kör varje dag kl 04:00 UTC (06:00 svensk sommartid / CEST)
 on:
   schedule:
-    - cron: '0 5 * * *'  # 05:00 UTC = 06:00 svensk tid (vintertid)
+    - cron: '0 4 * * *'  # 04:00 UTC = 06:00 svensk sommartid (CEST)
   workflow_dispatch:  # Tillåter manuell körning för testning
 
 jobs:
@@ -38,10 +38,10 @@ jobs:
           },
           "websites": [
             {"name": "GP", "url": "https://www.gp.se", "max_items": 5, "type": "gp_style"},
-            {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/nyheter/p4-goteborg", "max_items": 3, "type": "sverigesradio"},
-            {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/nyheter/p4-skaraborg", "max_items": 3, "type": "sverigesradio"},
-            {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/nyheter/p4-sjuharad", "max_items": 3, "type": "sverigesradio"},
-            {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/nyheter/p4-vast", "max_items": 3, "type": "sverigesradio"},
+            {"name": "SR P4 Göteborg", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+goteborg&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+            {"name": "SR P4 Skaraborg", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+skaraborg&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+            {"name": "SR P4 Sjuhärad", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+sjuharad&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+            {"name": "SR P4 Väst", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+%22p4+v%C3%A4st%22&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
             {"name": "Alingsås Tidning", "url": "https://www.alingsastidning.se", "max_items": 3, "type": "gp_style"},
             {"name": "Bohusläningen", "url": "https://www.bohuslaningen.se", "max_items": 3, "type": "gp_style"},
             {"name": "Härryda Posten", "url": "https://www.harrydaposten.se", "max_items": 3, "type": "gp_style"},
