@@ -9,11 +9,10 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 import json
 import os
 import time
-import re
 
 # ========== KONFIGURATION ==========
 CONFIG_FILE = 'scraper_config.json'
@@ -32,11 +31,11 @@ DEFAULT_CONFIG = {
         # GP först med 5 artiklar
         {"name": "GP", "url": "https://www.gp.se", "max_items": 5, "type": "gp_style"},
         
-        # Sveriges Radio direkt efter GP (använder SR:s officiella API, program_id krävs)
-        {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/goteborg/",  "max_items": 3, "type": "sverigesradio", "program_id": 104},
-        {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/skaraborg/", "max_items": 3, "type": "sverigesradio", "program_id": 97},
-        {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/sjuharad/",  "max_items": 3, "type": "sverigesradio", "program_id": 95},
-        {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/vast/",           "max_items": 3, "type": "sverigesradio", "program_id": 125},
+        # Sveriges Radio direkt efter GP
+        {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/nyheter/p4-goteborg", "max_items": 3, "type": "sverigesradio"},
+        {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/nyheter/p4-skaraborg", "max_items": 3, "type": "sverigesradio"},
+        {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/nyheter/p4-sjuharad", "max_items": 3, "type": "sverigesradio"},
+        {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/nyheter/p4-vast", "max_items": 3, "type": "sverigesradio"},
         
         # GP-gruppen i bokstavsordning
         {"name": "Alingsås Tidning",  "url": "https://www.alingsastidning.se",  "max_items": 3, "type": "gp_style"},
@@ -69,32 +68,11 @@ DEFAULT_CONFIG = {
 }
 
 
-SR_PROGRAM_IDS = {
-    "https://www.sverigesradio.se/nyheter/p4-goteborg":  104,
-    "https://www.sverigesradio.se/nyheter/p4-skaraborg": 97,
-    "https://www.sverigesradio.se/nyheter/p4-sjuharad":  95,
-    "https://www.sverigesradio.se/nyheter/p4-vast":      125,
-}
-
-
 def load_config():
     """Laddar konfiguration från fil eller skapar standardconfig"""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        # Migrera gamla SR-poster som saknar program_id
-        changed = False
-        for site in config.get('websites', []):
-            if site.get('type') == 'sverigesradio' and 'program_id' not in site:
-                pid = SR_PROGRAM_IDS.get(site['url'].rstrip('/'))
-                if pid:
-                    site['program_id'] = pid
-                    changed = True
-                    print(f"Migrerade {site['name']}: lade till program_id={pid}")
-        if changed:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-        return config
+            return json.load(f)
     else:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
@@ -141,112 +119,62 @@ def scrape_gp_style(soup, url, max_items):
     return articles
 
 
-def scrape_sverigesradio_api(program_id, max_items):
-    """Hämtar senaste nyhetssändningar från Sveriges Radio via officiellt API"""
-    months_sv = ['jan','feb','mar','apr','maj','jun',
-                 'jul','aug','sep','okt','nov','dec']
 
-    api_url = (
-        f"https://api.sr.se/api/v2/episodes/index"
-        f"?programid={program_id}&format=json&size={max_items * 2}&pagination=false"
-    )
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    response = requests.get(api_url, headers=headers, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
+def scrape_sverigesradio(soup, url, max_items):
+    """Scrapar Sveriges Radio-sajter för textartiklar (/artikel/-länkar)"""
     articles = []
+    seen_links = set()
 
-    for episode in data.get('episodes', []):
-        title = episode.get('title', '')
-        link = episode.get('url', '')
+    for link in soup.find_all('a', href=True):
+        href = link.get('href', '')
 
-        ms_match = re.search(r'/Date\((\d+)\)/', episode.get('publishdateutc', ''))
-        if ms_match:
-            dt = datetime.fromtimestamp(int(ms_match.group(1)) / 1000, tz=timezone.utc)
-            dt_local = dt + timedelta(hours=2)  # CET/CEST
-            headline = f"{title} · {dt_local.day} {months_sv[dt_local.month - 1]} {dt_local.strftime('%H:%M')}"
-        else:
-            headline = title
+        if '/artikel/' not in href:
+            continue
 
-        if headline and link:
-            articles.append({'headline': headline, 'lead': '', 'link': link})
+        if not href.startswith('http'):
+            href = 'https://www.sverigesradio.se' + href
+
+        if href in seen_links:
+            continue
+
+        # Strategi 1: heading-tag inuti länken (vanligt i moderna React-sajter)
+        headline = ''
+        for tag in link.find_all(['h1', 'h2', 'h3', 'h4']):
+            text = tag.get_text(strip=True)
+            if len(text) >= 20:
+                headline = text
+                break
+
+        # Strategi 2: länkens egna text (om länken direkt omsluter rubriken)
+        if not headline:
+            text = link.get_text(strip=True)
+            if len(text) >= 20:
+                headline = text
+
+        # Strategi 3: sök heading uppåt i DOM-trädet
+        if not headline:
+            parent = link.parent
+            for _ in range(4):
+                if parent is None:
+                    break
+                for tag in parent.find_all(['h1', 'h2', 'h3', 'h4'], limit=3):
+                    text = tag.get_text(strip=True)
+                    if len(text) >= 20:
+                        headline = text
+                        break
+                if headline:
+                    break
+                parent = parent.parent
+
+        if not headline:
+            continue
+
+        seen_links.add(href)
+        articles.append({'headline': headline, 'lead': '', 'link': href})
 
         if len(articles) >= max_items:
             break
 
-    return articles
-
-
-def scrape_sverigesradio(soup, url, max_items):
-    """Scrapar Sveriges Radio sajter - hittar de översta featured artiklarna först"""
-    articles = []
-    seen_links = set()
-    
-    # STEG 1: Hitta alla artikel-länkar på sidan
-    all_links = soup.find_all('a', href=True)
-    article_links = []
-    
-    for link in all_links:
-        href = link.get('href', '')
-        # Filtrera: Bara artikel-länkar
-        if '/artikel/' not in href:
-            continue
-        
-        # Bygg fullständig URL
-        if not href.startswith('http'):
-            href = 'https://www.sverigesradio.se' + href
-        
-        # Skippa dubbletter
-        if href in seen_links:
-            continue
-        
-        # Hitta rubrik för denna länk
-        # Försök 1: h3 inuti länken
-        headline_elem = link.select_one('h3')
-        
-        # Försök 2: h3 är parent eller nära länken
-        if not headline_elem:
-            headline_elem = link.find_parent('h3') or link.find_previous('h3') or link.find_next('h3')
-        
-        if headline_elem:
-            headline = headline_elem.get_text(strip=True)
-            
-            # Filtrera bort för korta rubriker (navigering etc)
-            if len(headline) < 20:
-                continue
-            
-            # Kolla storleken på rubriken för att prioritera
-            classes = headline_elem.get('class', [])
-            priority = 0
-            if 'text-2xl' in classes:
-                priority = 3  # Störst
-            elif 'text-xl' in classes:
-                priority = 2  # Stor
-            elif 'text-lg' in classes:
-                priority = 1  # Medel
-            else:
-                priority = 0  # Liten
-            
-            article_links.append({
-                'headline': headline,
-                'link': href,
-                'priority': priority
-            })
-            
-            seen_links.add(href)
-    
-    # STEG 2: Sortera efter prioritet (största först)
-    article_links.sort(key=lambda x: x['priority'], reverse=True)
-    
-    # STEG 3: Ta de första X artiklarna
-    for article_data in article_links[:max_items]:
-        articles.append({
-            'headline': article_data['headline'],
-            'lead': "",
-            'link': article_data['link']
-        })
-    
     return articles
 
 
@@ -347,20 +275,9 @@ def scrape_provins_style(soup, url, max_items):
     return articles
 
 
-def scrape_website(url, site_name, site_type, max_items, program_id=None):
+def scrape_website(url, site_name, site_type, max_items):
     """Scrapar en nyhetssida baserat på typ"""
     try:
-        # SR: använd officiellt API istället för HTML-scraping
-        if site_type == 'sverigesradio' and program_id:
-            articles = scrape_sverigesradio_api(program_id, max_items)
-            return {
-                'site_name': site_name,
-                'url': url,
-                'articles': articles,
-                'success': True,
-                'error': None
-            }
-
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
@@ -635,8 +552,7 @@ def main():
             site['url'],
             site['name'],
             site['type'],
-            site['max_items'],
-            program_id=site.get('program_id')
+            site['max_items']
         )
         
         all_results.append(result)
