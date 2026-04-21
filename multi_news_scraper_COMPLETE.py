@@ -9,7 +9,9 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 import json
 import os
 import time
@@ -31,14 +33,14 @@ DEFAULT_CONFIG = {
         # GP först med 5 artiklar
         {"name": "GP", "url": "https://www.gp.se", "max_items": 5, "type": "gp_style"},
         
-        # Sveriges Radio direkt efter GP
-        {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/nyheter/p4-goteborg", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/nyheter/p4-skaraborg", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/nyheter/p4-sjuharad", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/nyheter/p4-vast", "max_items": 3, "type": "sverigesradio"},
+        # Sveriges Radio direkt efter GP – via Google News RSS (kringgår SR:s server-blockering)
+        {"name": "SR P4 Göteborg", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+goteborg&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+        {"name": "SR P4 Skaraborg", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+skaraborg&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+        {"name": "SR P4 Sjuhärad", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+sjuharad&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
+        {"name": "SR P4 Väst", "url": "https://news.google.com/rss/search?q=site:sverigesradio.se/artikel+%22p4+v%C3%A4st%22&hl=sv&gl=SE&ceid=SE:sv", "max_items": 3, "type": "rss_style"},
         
         # GP-gruppen i bokstavsordning
-        {"name": "Alingsås Tidning", "url": "https://www.alingsastidning.se", "max_items": 3, "type": "gp_style"},
+        {"name": "Alingsås Tidning",  "url": "https://www.alingsastidning.se",  "max_items": 3, "type": "gp_style"},
         {"name": "Bohusläningen", "url": "https://www.bohuslaningen.se", "max_items": 3, "type": "gp_style"},
         {"name": "Härryda Posten", "url": "https://www.harrydaposten.se", "max_items": 3, "type": "gp_style"},
         {"name": "Kungälvs-Posten", "url": "https://www.kungalvsposten.se", "max_items": 3, "type": "gp_style"},
@@ -119,75 +121,106 @@ def scrape_gp_style(soup, url, max_items):
     return articles
 
 
+
+def scrape_rss_style(url, max_items):
+    """Scrapar ett RSS-flöde och returnerar färska artiklar (max 7 dagar gamla)"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+
+    root = ET.fromstring(response.content)
+    articles = []
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+
+    for item in root.findall('.//item'):
+        title_el = item.find('title')
+        link_el = item.find('link')
+        desc_el = item.find('description')
+        pub_el = item.find('pubDate')
+
+        if title_el is None or link_el is None:
+            continue
+
+        # Datum-filter – hoppa över gamla artiklar
+        if pub_el is not None and pub_el.text:
+            try:
+                if parsedate_to_datetime(pub_el.text) < cutoff:
+                    continue
+            except Exception:
+                pass
+
+        title = title_el.text or ''
+        # Ta bort " - Sveriges Radio" suffix som Google News lägger till
+        if ' - Sveriges Radio' in title:
+            title = title[:title.rfind(' - Sveriges Radio')]
+
+        link = link_el.text or ''
+        desc = (desc_el.text or '')[:150] if desc_el is not None else ''
+
+        if len(title) >= 15 and link:
+            articles.append({'headline': title, 'lead': '', 'link': link})
+
+        if len(articles) >= max_items:
+            break
+
+    return articles
+
+
 def scrape_sverigesradio(soup, url, max_items):
-    """Scrapar Sveriges Radio sajter - hittar de översta featured artiklarna först"""
+    """Scrapar Sveriges Radio-sajter för textartiklar (/artikel/-länkar)"""
     articles = []
     seen_links = set()
-    
-    # STEG 1: Hitta alla artikel-länkar på sidan
-    all_links = soup.find_all('a', href=True)
-    article_links = []
-    
-    for link in all_links:
+
+    for link in soup.find_all('a', href=True):
         href = link.get('href', '')
-        # Filtrera: Bara artikel-länkar
+
         if '/artikel/' not in href:
             continue
-        
-        # Bygg fullständig URL
+
         if not href.startswith('http'):
             href = 'https://www.sverigesradio.se' + href
-        
-        # Skippa dubbletter
+
         if href in seen_links:
             continue
-        
-        # Hitta rubrik för denna länk
-        # Försök 1: h3 inuti länken
-        headline_elem = link.select_one('h3')
-        
-        # Försök 2: h3 är parent eller nära länken
-        if not headline_elem:
-            headline_elem = link.find_parent('h3') or link.find_previous('h3') or link.find_next('h3')
-        
-        if headline_elem:
-            headline = headline_elem.get_text(strip=True)
-            
-            # Filtrera bort för korta rubriker (navigering etc)
-            if len(headline) < 20:
-                continue
-            
-            # Kolla storleken på rubriken för att prioritera
-            classes = headline_elem.get('class', [])
-            priority = 0
-            if 'text-2xl' in classes:
-                priority = 3  # Störst
-            elif 'text-xl' in classes:
-                priority = 2  # Stor
-            elif 'text-lg' in classes:
-                priority = 1  # Medel
-            else:
-                priority = 0  # Liten
-            
-            article_links.append({
-                'headline': headline,
-                'link': href,
-                'priority': priority
-            })
-            
-            seen_links.add(href)
-    
-    # STEG 2: Sortera efter prioritet (största först)
-    article_links.sort(key=lambda x: x['priority'], reverse=True)
-    
-    # STEG 3: Ta de första X artiklarna
-    for article_data in article_links[:max_items]:
-        articles.append({
-            'headline': article_data['headline'],
-            'lead': "",
-            'link': article_data['link']
-        })
-    
+
+        # Strategi 1: heading-tag inuti länken (vanligt i moderna React-sajter)
+        headline = ''
+        for tag in link.find_all(['h1', 'h2', 'h3', 'h4']):
+            text = tag.get_text(strip=True)
+            if len(text) >= 20:
+                headline = text
+                break
+
+        # Strategi 2: länkens egna text (om länken direkt omsluter rubriken)
+        if not headline:
+            text = link.get_text(strip=True)
+            if len(text) >= 20:
+                headline = text
+
+        # Strategi 3: sök heading uppåt i DOM-trädet
+        if not headline:
+            parent = link.parent
+            for _ in range(4):
+                if parent is None:
+                    break
+                for tag in parent.find_all(['h1', 'h2', 'h3', 'h4'], limit=3):
+                    text = tag.get_text(strip=True)
+                    if len(text) >= 20:
+                        headline = text
+                        break
+                if headline:
+                    break
+                parent = parent.parent
+
+        if not headline:
+            continue
+
+        seen_links.add(href)
+        articles.append({'headline': headline, 'lead': '', 'link': href})
+
+        if len(articles) >= max_items:
+            break
+
     return articles
 
 
@@ -291,14 +324,25 @@ def scrape_provins_style(soup, url, max_items):
 def scrape_website(url, site_name, site_type, max_items):
     """Scrapar en nyhetssida baserat på typ"""
     try:
+        # RSS-flöden hanteras direkt utan HTML-parsning
+        if site_type == 'rss_style':
+            articles = scrape_rss_style(url, max_items)
+            return {
+                'site_name': site_name,
+                'url': url,
+                'articles': articles,
+                'success': True,
+                'error': None
+            }
+
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        
+
         soup = BeautifulSoup(response.content, 'html.parser')
-        
+
         # Välj rätt scraping-metod baserat på typ
         if site_type == 'gp_style':
             articles = scrape_gp_style(soup, url, max_items)
@@ -310,7 +354,7 @@ def scrape_website(url, site_name, site_type, max_items):
             articles = scrape_provins_style(soup, url, max_items)
         else:
             articles = []
-        
+
         return {
             'site_name': site_name,
             'url': url,
@@ -318,7 +362,7 @@ def scrape_website(url, site_name, site_type, max_items):
             'success': True,
             'error': None
         }
-        
+
     except Exception as e:
         return {
             'site_name': site_name,
