@@ -9,10 +9,11 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import os
 import time
+import re
 
 # ========== KONFIGURATION ==========
 CONFIG_FILE = 'scraper_config.json'
@@ -31,14 +32,14 @@ DEFAULT_CONFIG = {
         # GP först med 5 artiklar
         {"name": "GP", "url": "https://www.gp.se", "max_items": 5, "type": "gp_style"},
         
-        # Sveriges Radio direkt efter GP
-        {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/nyheter/p4-goteborg", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/nyheter/p4-skaraborg", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/nyheter/p4-sjuharad", "max_items": 3, "type": "sverigesradio"},
-        {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/nyheter/p4-vast", "max_items": 3, "type": "sverigesradio"},
+        # Sveriges Radio direkt efter GP (använder SR:s officiella API, program_id krävs)
+        {"name": "SR P4 Göteborg", "url": "https://www.sverigesradio.se/goteborg/",  "max_items": 3, "type": "sverigesradio", "program_id": 104},
+        {"name": "SR P4 Skaraborg", "url": "https://www.sverigesradio.se/skaraborg/", "max_items": 3, "type": "sverigesradio", "program_id": 97},
+        {"name": "SR P4 Sjuhärad", "url": "https://www.sverigesradio.se/sjuharad/",  "max_items": 3, "type": "sverigesradio", "program_id": 95},
+        {"name": "SR P4 Väst", "url": "https://www.sverigesradio.se/vast/",           "max_items": 3, "type": "sverigesradio", "program_id": 125},
         
         # GP-gruppen i bokstavsordning
-        {"name": "Alingsås Tidning", "url": "https://www.alingsastidning.se", "max_items": 3, "type": "gp_style"},
+        {"name": "Alingsås Tidning",  "url": "https://www.alingsastidning.se",  "max_items": 3, "type": "gp_style"},
         {"name": "Bohusläningen", "url": "https://www.bohuslaningen.se", "max_items": 3, "type": "gp_style"},
         {"name": "Härryda Posten", "url": "https://www.harrydaposten.se", "max_items": 3, "type": "gp_style"},
         {"name": "Kungälvs-Posten", "url": "https://www.kungalvsposten.se", "max_items": 3, "type": "gp_style"},
@@ -68,11 +69,32 @@ DEFAULT_CONFIG = {
 }
 
 
+SR_PROGRAM_IDS = {
+    "https://www.sverigesradio.se/nyheter/p4-goteborg":  104,
+    "https://www.sverigesradio.se/nyheter/p4-skaraborg": 97,
+    "https://www.sverigesradio.se/nyheter/p4-sjuharad":  95,
+    "https://www.sverigesradio.se/nyheter/p4-vast":      125,
+}
+
+
 def load_config():
     """Laddar konfiguration från fil eller skapar standardconfig"""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+        # Migrera gamla SR-poster som saknar program_id
+        changed = False
+        for site in config.get('websites', []):
+            if site.get('type') == 'sverigesradio' and 'program_id' not in site:
+                pid = SR_PROGRAM_IDS.get(site['url'].rstrip('/'))
+                if pid:
+                    site['program_id'] = pid
+                    changed = True
+                    print(f"Migrerade {site['name']}: lade till program_id={pid}")
+        if changed:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+        return config
     else:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
@@ -116,6 +138,43 @@ def scrape_gp_style(soup, url, max_items):
             if len(articles) >= max_items:
                 break
     
+    return articles
+
+
+def scrape_sverigesradio_api(program_id, max_items):
+    """Hämtar senaste nyhetssändningar från Sveriges Radio via officiellt API"""
+    months_sv = ['jan','feb','mar','apr','maj','jun',
+                 'jul','aug','sep','okt','nov','dec']
+
+    api_url = (
+        f"https://api.sr.se/api/v2/episodes/index"
+        f"?programid={program_id}&format=json&size={max_items * 2}&pagination=false"
+    )
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    response = requests.get(api_url, headers=headers, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+    articles = []
+
+    for episode in data.get('episodes', []):
+        title = episode.get('title', '')
+        link = episode.get('url', '')
+
+        ms_match = re.search(r'/Date\((\d+)\)/', episode.get('publishdateutc', ''))
+        if ms_match:
+            dt = datetime.fromtimestamp(int(ms_match.group(1)) / 1000, tz=timezone.utc)
+            dt_local = dt + timedelta(hours=2)  # CET/CEST
+            headline = f"{title} · {dt_local.day} {months_sv[dt_local.month - 1]} {dt_local.strftime('%H:%M')}"
+        else:
+            headline = title
+
+        if headline and link:
+            articles.append({'headline': headline, 'lead': '', 'link': link})
+
+        if len(articles) >= max_items:
+            break
+
     return articles
 
 
@@ -288,17 +347,28 @@ def scrape_provins_style(soup, url, max_items):
     return articles
 
 
-def scrape_website(url, site_name, site_type, max_items):
+def scrape_website(url, site_name, site_type, max_items, program_id=None):
     """Scrapar en nyhetssida baserat på typ"""
     try:
+        # SR: använd officiellt API istället för HTML-scraping
+        if site_type == 'sverigesradio' and program_id:
+            articles = scrape_sverigesradio_api(program_id, max_items)
+            return {
+                'site_name': site_name,
+                'url': url,
+                'articles': articles,
+                'success': True,
+                'error': None
+            }
+
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        
+
         soup = BeautifulSoup(response.content, 'html.parser')
-        
+
         # Välj rätt scraping-metod baserat på typ
         if site_type == 'gp_style':
             articles = scrape_gp_style(soup, url, max_items)
@@ -310,7 +380,7 @@ def scrape_website(url, site_name, site_type, max_items):
             articles = scrape_provins_style(soup, url, max_items)
         else:
             articles = []
-        
+
         return {
             'site_name': site_name,
             'url': url,
@@ -318,7 +388,7 @@ def scrape_website(url, site_name, site_type, max_items):
             'success': True,
             'error': None
         }
-        
+
     except Exception as e:
         return {
             'site_name': site_name,
@@ -565,7 +635,8 @@ def main():
             site['url'],
             site['name'],
             site['type'],
-            site['max_items']
+            site['max_items'],
+            program_id=site.get('program_id')
         )
         
         all_results.append(result)
